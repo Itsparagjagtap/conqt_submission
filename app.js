@@ -1,38 +1,53 @@
 const express = require("express");
-const mysql = require("mysql2");
+const mysql = require("mysql2/promise");
+const dotenv = require("dotenv");
 
-const connection = mysql.createConnection({
-  host: "localhost",
-  user: "candidate",
-  password: "NoTeDeSt^C10.6?SxwY882}",
-  database: "conqtvms_dev",
-});
-
-connection.connect((err) => {
-  if (err) {
-    return console.log("Error occurred during connection");
-  }
-
-  console.log(`connected as id` + connection.threadId);
-});
+dotenv.config();
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-app.get("/", (req, res) => {
-  res.send("This is Home Page");
+const dbConfig = {
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+};
+
+app.get("/api/getVendorUsers", async (req, res) => {
+  const { prId, custOrgId } = req.query;
+
+  if (!prId || !custOrgId) {
+    return res
+      .status(400)
+      .json({ error: "missing prId or custOrgId parameter" });
+  }
+
+  try {
+    const connection = await mysql.createConnection(dbConfig);
+    const query = `
+      SELECT DISTINCT 
+        vu.VendorOrganizationId AS supplierId, 
+        vu.UserName, 
+        vu.Name
+      FROM PrLineItems pli
+      JOIN VendorUsers vu 
+        ON FIND_IN_SET(vu.VendorOrganizationId, pli.suppliers) > 0
+      WHERE pli.purchaseRequestId = ? 
+        AND pli.custOrgId = ? 
+        AND vu.Role = 'Admin';
+    `;
+
+    const [rows] = await connection.execute(query, [prId, custOrgId]);
+
+    await connection.end();
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching vendor users:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-app.get("/api/getVendorUsers", (req, res) => {
-  const prId = req.query.prId;
-  const custOrgId = req.query.custOrgId;
-
-  const data =
-    connection.query(`select suppliers, custOrgId, purchaseRequestId from PrLineItem
-    `);
-  return data;
-});
-
-connection.end();
-app.listen(3000, () => {
-  console.log("server is listening on port 3000");
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
